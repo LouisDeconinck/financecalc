@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Market Index Calculator</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <script src="stockmarket_data.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        input, button {
+            margin: 10px 0;
+            padding: 5px;
+        }
+        #results, #chartContainer {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Stock Market Index Calculator</h1>
+    <div>
+        <label for="startingAmount">Starting Amount:</label>
+        <input type="number" id="startingAmount" min="0" step="1000" value="100000">
+    </div>
+    <div>
+        <label for="years">Period in Years:</label>
+        <input type="number" id="years" min="1" max="50" value="30">
+    </div>
+    <div>
+        <label for="withdrawalAmount">Annual Withdrawal Amount:</label>
+        <input type="number" id="withdrawalAmount" min="0" step="1000" value="4000">
+    </div>
+    <button onclick="calculate()">Calculate</button>
+    <div id="chartContainer">
+        <canvas id="resultChart"></canvas>
+    </div>
+    <div id="histogramContainer">
+        <canvas id="histogramChart"></canvas>
+    </div>
+    <div id="results"></div>
+
+    <script>
+        function generateMoreRealisticData(years) {
+            const data = [];
+            const baseReturn = 1.07;  // 7% average annual return
+            const volatility = 0.15;  // 15% annual volatility
+        
+            for (let year = 0; year < years; year++) {
+                for (let month = 0; month < 12; month++) {
+                    const randomFactor = Math.exp(
+                        (Math.log(baseReturn) - volatility * volatility / 2) / 12 
+                        + volatility * Math.sqrt(1/12) * (Math.random() * 2 - 1)
+                    );
+                    data.push(randomFactor);
+                }
+            }
+            return data;
+        }
+        
+        let fullDataset = [];
+
+        let lineChart;
+        let histogramChart;
+
+        // Process the data when the page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            fullDataset = stockMarketData.map(row => ({
+                date: new Date(row.Date),
+                value: parseFloat(row.IndexValue)
+            }));
+            // Enable the calculate button after data is processed
+            document.querySelector('button').disabled = false;
+        });
+
+        function calculate() {
+            const startingAmount = parseFloat(document.getElementById('startingAmount').value);
+            const years = parseInt(document.getElementById('years').value);
+            const withdrawalAmount = parseFloat(document.getElementById('withdrawalAmount').value);
+            
+            const chartData = [];
+    
+            for (let startIndex = 0; startIndex < fullDataset.length - years * 12; startIndex++) {
+                let balance = startingAmount;
+                const periodData = [];
+                
+                for (let month = 0; month < years * 12; month++) {
+                    if (month > 0) {
+                        // Calculate monthly return
+                        const monthlyReturn = fullDataset[startIndex + month].value / fullDataset[startIndex + month - 1].value;
+                        balance *= monthlyReturn;
+                    }
+                    
+                    if (month % 12 === 11) { // Withdraw annually
+                        balance -= withdrawalAmount;
+                    }
+                    // Adjust x to represent years instead of months
+                    periodData.push({x: month / 12, y: balance});
+                }
+    
+                const finalBalance = periodData[periodData.length - 1].y;
+                let color;
+                if (finalBalance < 0) {
+                    color = 'rgba(255, 0, 0, 0.1)'; // Red for negative
+                } else if (finalBalance < startingAmount) {
+                    color = 'rgba(255, 165, 0, 0.1)'; // Orange if below starting amount but above 0
+                } else {
+                    color = 'rgba(0, 128, 0, 0.1)'; // Green for positive
+                }
+    
+                const startDate = fullDataset[startIndex].date;
+                const startYearMonth = startDate.toLocaleString('default', { year: 'numeric', month: 'short' });
+                chartData.push({
+                    label: startYearMonth,
+                    data: periodData,
+                    borderColor: color,
+                    fill: false,
+                    pointRadius: 0,
+                    borderWidth: 1
+                });
+            }
+    
+            createChart(chartData, years);
+
+            const finalBalances = chartData.map(dataset => dataset.data[dataset.data.length - 1].y);
+            createHistogram(finalBalances);
+        }
+        
+        function createChart(chartData, years) {
+            const ctx = document.getElementById('resultChart').getContext('2d');
+            
+            if (lineChart) {
+                lineChart.destroy();
+            }
+        
+            lineChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    datasets: chartData
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        title: {
+                            display: true,
+                            text: 'Portfolio Balance Over Time'
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            display: true,
+                            title: {
+                                display: true,
+                                text: 'Years'
+                            },
+                            ticks: {
+                                // Convert fractional years to whole years for labels
+                                callback: function(value, index, values) {
+                                    return Math.round(value);
+                                }
+                            },
+                            bounds: 'data'
+                        },
+                        y: {
+                            display: true,
+                            title: {
+                                display: true,
+                                text: 'Balance ($)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function createHistogram(finalBalances) {
+            const startingAmount = parseFloat(document.getElementById('startingAmount').value);
+            const binWidth = startingAmount;
+            const totalPeriods = finalBalances.length;
+            const minBinCount = Math.ceil(totalPeriods * 0.01);
+        
+            finalBalances.sort((a, b) => a - b);
+        
+            // Determine underflow and overflow bins
+            let underflowThreshold = finalBalances[minBinCount - 1];
+            let overflowThreshold = finalBalances[finalBalances.length - minBinCount];
+        
+            // Adjust thresholds to align with bin widths
+            underflowThreshold = Math.floor(underflowThreshold / binWidth) * binWidth;
+            overflowThreshold = Math.ceil(overflowThreshold / binWidth) * binWidth;
+        
+            let histogramData = {
+                underflow: 0,
+                overflow: 0
+            };
+        
+            finalBalances.forEach(balance => {
+                if (balance < underflowThreshold) {
+                    histogramData.underflow++;
+                } else if (balance >= overflowThreshold) {
+                    histogramData.overflow++;
+                } else {
+                    const bin = Math.floor(balance / binWidth) * binWidth;
+                    histogramData[bin] = (histogramData[bin] || 0) + 1;
+                }
+            });
+        
+            let chartData = [
+                { start: -Infinity, end: underflowThreshold, count: histogramData.underflow }
+            ];
+        
+            Object.entries(histogramData)
+                .filter(([key]) => key !== 'underflow' && key !== 'overflow')
+                .sort(([a], [b]) => parseFloat(a) - parseFloat(b))
+                .forEach(([binStart, count]) => {
+                    binStart = parseFloat(binStart);
+                    chartData.push({
+                        start: binStart,
+                        end: binStart + binWidth,
+                        count: count
+                    });
+                });
+        
+            chartData.push({ start: overflowThreshold, end: Infinity, count: histogramData.overflow });
+        
+            updateHistogramChart(chartData, startingAmount);
+        }
+        
+        function updateHistogramChart(chartData, startingAmount) {
+            const ctx = document.getElementById('histogramChart').getContext('2d');
+            if (histogramChart) {
+                histogramChart.destroy();
+            }
+        
+            histogramChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: chartData.map((bin, index) => {
+                        if (index === 0 && bin.start === -Infinity) return `< $${bin.end.toLocaleString()}`;
+                        if (index === chartData.length - 1 && bin.end === Infinity) return `> $${bin.start.toLocaleString()}`;
+                        return `$${bin.start.toLocaleString()} - $${bin.end.toLocaleString()}`;
+                    }),
+                    datasets: [{
+                        label: 'Number of Periods',
+                        data: chartData.map(bin => bin.count),
+                        backgroundColor: chartData.map(bin => {
+                            if (bin.end <= 0) return 'rgba(255, 0, 0, 0.5)';
+                            if (bin.start < startingAmount) return 'rgba(255, 165, 0, 0.5)';
+                            return 'rgba(0, 128, 0, 0.5)';
+                        }),
+                        borderColor: chartData.map(bin => {
+                            if (bin.end <= 0) return 'rgba(255, 0, 0, 1)';
+                            if (bin.start < startingAmount) return 'rgba(255, 165, 0, 1)';
+                            return 'rgba(0, 128, 0, 1)';
+                        }),
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Number of Periods'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Final Balance'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        title: {
+                            display: true,
+                            text: 'Histogram of Final Balances'
+                        }
+                    }
+                }
+            });
+        }
+
+        function displayResults(results) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<h2>Results:</h2>';
+            if (results.length === 0) {
+                resultsDiv.innerHTML += '<p>No successful periods found.</p>';
+            } else {
+                const resultsList = results.map(result => 
+                    `<li>Starting ${result.startYear}: Final balance $${result.endBalance}</li>`
+                ).join('');
+                resultsDiv.innerHTML += `<ul>${resultsList}</ul>`;
+            }
+        }
+    </script>
+</body>
+</html>
