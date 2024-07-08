@@ -1,3 +1,4 @@
+// Source: https://shillerdata.com/
 const stockMarketData = [
     {
       Date: "1871-1-1",

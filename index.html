@@ -4,381 +4,99 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stock Market Index Calculator</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@sgratzl/chartjs-chart-boxplot@4.4.0/build/index.umd.min.js"></script>
+    <script>Chart.register(Chart.controllers.boxplot);</script>
     <script src="stockmarket_data.js"></script>
-    <script src="sp500_data.js"></script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/water.css">
+    <script src="msciworld_data.js"></script>
+    <script src="main.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/light.css">
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
+        .input-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
         }
-        input, button, select {
-            margin: 10px 0;
-            padding: 5px;
+        .input-group {
+            display: flex;
+            flex-direction: column;
         }
-        #results, #chartContainer {
-            margin-top: 20px;
+        details {
+            margin-bottom: 10px;
+        }
+        summary {
+            cursor: pointer;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 5px;
+        }
+        #calculateButton {
+            margin-top: 10px;
+            width: 100%;
+        }
+        #resultContainer {
+            display: flex;
+            align-items: center;
+            height: 30px;
+            background-color: #f0f0f0;
+            border-radius: 5px;
+            padding-left: 10px;
+            padding-right: 10px;
+            margin-bottom: 10px;
         }
     </style>
 </head>
 <body>
     <h1>Stock Market Index Calculator</h1>
-    <div>
-        <label for="datasetSelect">Select Dataset:</label>
-        <select id="datasetSelect">
-            <option value="stockmarket">Stock Market</option>
-            <option value="sp500">S&P 500</option>
-        </select>
+    <details open>
+        <summary>Input Parameters</summary>
+        <div class="input-container">
+            <div class="input-group">
+                <label for="datasetSelect">Select Dataset:</label>
+                <select id="datasetSelect">
+                    <option value="stockmarket">Stock Market</option>
+                    <option value="msciworld">MSCI World</option>
+                </select>
+            </div>
+            <div class="input-group">
+                <label for="startingAmount">Starting Amount:</label>
+                <input type="number" id="startingAmount" min="0" step="100000" value="1000000">
+            </div>
+            <div class="input-group">
+                <label for="years">Period in Years:</label>
+                <input type="number" id="years" min="1" max="200" value="30" step="5">
+            </div>
+            <div class="input-group">
+                <label for="withdrawalFrequency">Withdrawal Frequency:</label>
+                <select id="withdrawalFrequency">
+                    <option value="12">Monthly</option>
+                    <option value="4">Quarterly</option>
+                    <option value="1" selected>Yearly</option>
+                </select>
+            </div>
+            <div class="input-group">
+                <label for="withdrawalAmount">Withdrawal Amount:</label>
+                <input type="number" id="withdrawalAmount" min="0" step="1000" value="40000">
+            </div>
+            <div class="input-group">
+                <label for="inflationRate">Yearly Inflation Rate (%):</label>
+                <input type="number" id="inflationRate" min="0" step="0.1" value="2" max="1000">
+            </div>
+        </div>
+        <button id="calculateButton" onclick="calculate()">Calculate</button>
+    </details>
+    <div id="resultContainer">
+        <progress id="progressBar" value="0" max="100" style="width: 100%; display: none;"></progress>
+        <div id="sufficientFundsInfo"></div>
     </div>
-    <div>
-        <label for="startingAmount">Starting Amount:</label>
-        <input type="number" id="startingAmount" min="0" step="1000" value="100000">
-    </div>
-    <div>
-        <label for="years">Period in Years:</label>
-        <input type="number" id="years" min="1" max="50" value="30">
-    </div>
-    <div>
-        <label for="withdrawalFrequency">Withdrawal Frequency:</label>
-        <select id="withdrawalFrequency">
-            <option value="12">Monthly</option>
-            <option value="4">Quarterly</option>
-            <option value="1" selected>Yearly</option>
-        </select>
-    </div>
-    <div>
-        <label for="withdrawalAmount">Withdrawal Amount:</label>
-        <input type="number" id="withdrawalAmount" min="0" step="1000" value="4000">
-    </div>
-    <button onclick="calculate()">Calculate</button>
-    <progress id="progressBar" value="0" max="100" style="width: 100%; display: none;"></progress>
-    <div id="sufficientFundsInfo"></div>
     <div id="chartContainer">
         <canvas id="resultChart"></canvas>
     </div>
     <div id="histogramContainer">
         <canvas id="histogramChart"></canvas>
     </div>
-
-    <script>
-        let fullDataset = [];
-        let lineChart;
-        let histogramChart;
-        let maxYears;
-
-        // Process the data when the page loads
-        document.addEventListener('DOMContentLoaded', function() {
-            loadDataset();
-            document.getElementById('datasetSelect').addEventListener('change', loadDataset);
-        });
-
-        function loadDataset() {
-            const dataset = document.getElementById('datasetSelect').value;
-            const data = dataset === 'sp500' ? sp500Data : stockMarketData;
-            
-            fullDataset = data.map(row => ({
-                date: new Date(row.Date),
-                value: parseFloat(row.IndexValue)
-            }));
-
-            maxYears = Math.floor(fullDataset.length / 12) - 1;
-            const yearsInput = document.getElementById('years');
-            yearsInput.max = maxYears;
-            yearsInput.value = Math.min(parseInt(yearsInput.value), maxYears);
-
-            // Enable the calculate button after data is processed
-            document.querySelector('button').disabled = false;
-        }
-
-        function calculate() {
-            const startingAmount = parseFloat(document.getElementById('startingAmount').value);
-            const years = parseInt(document.getElementById('years').value);
-            const withdrawalAmount = parseFloat(document.getElementById('withdrawalAmount').value);
-            const withdrawalFrequency = parseInt(document.getElementById('withdrawalFrequency').value);
-            
-            const chartData = [];
-            let finalBalances = [];
-            let processedPeriods = 0;
-            const totalPeriods = fullDataset.length - years * 12;
-            const chunkSize = 12;
-            let sufficientFundsPeriods = 0;
-        
-            // Show progress bar
-            document.getElementById('progressBar').style.display = 'block';
-        
-            function processChunk() {
-                const endIndex = Math.min(processedPeriods + chunkSize, totalPeriods);
-                
-                for (let startIndex = processedPeriods; startIndex < endIndex; startIndex++) {
-                    let balance = startingAmount;
-                    const periodData = [];
-                    let sufficientFunds = true;
-                    
-                    for (let month = 0; month < years * 12; month++) {
-                        if (month > 0) {
-                            const monthlyReturn = fullDataset[startIndex + month].value / fullDataset[startIndex + month - 1].value;
-                            balance *= monthlyReturn;
-                        }
-                        
-                        if (withdrawalFrequency === 12 || 
-                            (withdrawalFrequency === 4 && month % 3 === 0) || 
-                            (withdrawalFrequency === 1 && month % 12 === 0)) {
-                            balance -= withdrawalAmount;
-                        }
-                        
-                        periodData.push({x: month / 12, y: balance});
-
-                        if (balance < 0) {
-                            sufficientFunds = false;
-                        }
-                    }
-        
-                    if (sufficientFunds) {
-                        sufficientFundsPeriods++;
-                    }
-
-                    const finalBalance = periodData[periodData.length - 1].y;
-                    let color;
-                    if (finalBalance < 0) {
-                        color = 'rgba(255, 0, 0, 0.1)';
-                    } else if (finalBalance < startingAmount) {
-                        color = 'rgba(255, 165, 0, 0.1)';
-                    } else {
-                        color = 'rgba(0, 128, 0, 0.1)';
-                    }
-        
-                    const startDate = fullDataset[startIndex].date;
-                    const startYearMonth = startDate.toLocaleString('default', { year: 'numeric', month: 'short' });
-                    chartData.push({
-                        label: startYearMonth,
-                        data: periodData,
-                        borderColor: color,
-                        fill: false,
-                        pointRadius: 0,
-                        borderWidth: 1
-                    });
-        
-                    finalBalances.push(finalBalance);
-                }
-        
-                createChart(chartData, years);
-                createHistogram(finalBalances, startingAmount);
-        
-                processedPeriods = endIndex;
-                
-                // Update progress bar
-                const progress = Math.round((processedPeriods / totalPeriods) * 100);
-                document.getElementById('progressBar').value = progress;
-        
-                if (processedPeriods < totalPeriods) {
-                    setTimeout(processChunk, 0);
-                } else {
-                    // Hide progress bar when done
-                    document.getElementById('progressBar').style.display = 'none';
-                    // Display sufficient funds info
-                    const percentage = (sufficientFundsPeriods / totalPeriods * 100).toFixed(2);
-                    document.getElementById('sufficientFundsInfo').textContent = 
-                        `${sufficientFundsPeriods}/${totalPeriods} (${percentage}%) periods with sufficient funds`;
-                }
-            }
-        
-            processChunk();
-        }
-        
-        function createChart(chartData, years) {
-            const ctx = document.getElementById('resultChart').getContext('2d');
-            
-            if (!lineChart) {
-                lineChart = new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        datasets: chartData
-                    },
-                    options: {
-                        responsive: true,
-                        animation: false,
-                        plugins: {
-                            legend: {
-                                display: false
-                            },
-                            title: {
-                                display: true,
-                                text: 'Portfolio Balance Over Time'
-                            }
-                        },
-                        scales: {
-                            x: {
-                                type: 'linear',
-                                display: true,
-                                title: {
-                                    display: true,
-                                    text: 'Years'
-                                },
-                                ticks: {
-                                    callback: function(value, index, values) {
-                                        return Math.round(value);
-                                    }
-                                },
-                                bounds: 'data'
-                            },
-                            y: {
-                                display: true,
-                                title: {
-                                    display: true,
-                                    text: 'Balance ($)'
-                                }
-                            }
-                        }
-                    }
-                });
-            } else {
-                lineChart.data.datasets = chartData;
-                lineChart.update('none');
-            }
-        }
-        
-        function createHistogram(finalBalances, startingAmount) {
-            const binWidth = startingAmount;
-            const totalPeriods = finalBalances.length;
-            const minBinCount = Math.ceil(totalPeriods * 0.01);
-        
-            finalBalances.sort((a, b) => a - b);
-        
-            let underflowThreshold = finalBalances[minBinCount - 1];
-            let overflowThreshold = finalBalances[finalBalances.length - minBinCount];
-        
-            underflowThreshold = Math.floor(underflowThreshold / binWidth) * binWidth;
-            overflowThreshold = Math.ceil(overflowThreshold / binWidth) * binWidth;
-        
-            let histogramData = {
-                underflow: 0,
-                overflow: 0
-            };
-        
-            finalBalances.forEach(balance => {
-                if (balance < underflowThreshold) {
-                    histogramData.underflow++;
-                } else if (balance >= overflowThreshold) {
-                    histogramData.overflow++;
-                } else {
-                    const bin = Math.floor(balance / binWidth) * binWidth;
-                    histogramData[bin] = (histogramData[bin] || 0) + 1;
-                }
-            });
-        
-            let chartData = [
-                { start: -Infinity, end: underflowThreshold, count: histogramData.underflow }
-            ];
-        
-            Object.entries(histogramData)
-                .filter(([key]) => key !== 'underflow' && key !== 'overflow')
-                .sort(([a], [b]) => parseFloat(a) - parseFloat(b))
-                .forEach(([binStart, count]) => {
-                    binStart = parseFloat(binStart);
-                    chartData.push({
-                        start: binStart,
-                        end: binStart + binWidth,
-                        count: count
-                    });
-                });
-        
-            chartData.push({ start: overflowThreshold, end: Infinity, count: histogramData.overflow });
-        
-            // Determine overall min and max for coloring
-            const overallMin = Math.min(...finalBalances);
-            const overallMax = Math.max(...finalBalances);
-        
-            updateHistogramChart(chartData, startingAmount, overallMin, overallMax);
-        }
-        
-        function updateHistogramChart(chartData, startingAmount, overallMin, overallMax) {
-            const ctx = document.getElementById('histogramChart').getContext('2d');
-            
-            if (!histogramChart) {
-                histogramChart = new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: chartData.map((bin, index) => {
-                            if (index === 0 && bin.start === -Infinity) return `< $${bin.end.toLocaleString()}`;
-                            if (index === chartData.length - 1 && bin.end === Infinity) return `≥ $${bin.start.toLocaleString()}`;
-                            return `$${bin.start.toLocaleString()} - $${bin.end.toLocaleString()}`;
-                        }),
-                        datasets: [{
-                            label: 'Number of Periods',
-                            data: chartData.map(bin => bin.count),
-                            backgroundColor: chartData.map(bin => {
-                                if (overallMax <= 0) return 'rgba(255, 0, 0, 0.5)';
-                                if (overallMin >= startingAmount) return 'rgba(0, 128, 0, 0.5)';
-                                if (bin.end <= 0) return 'rgba(255, 0, 0, 0.5)';
-                                if (bin.start < startingAmount) return 'rgba(255, 165, 0, 0.5)';
-                                return 'rgba(0, 128, 0, 0.5)';
-                            }),
-                            borderColor: chartData.map(bin => {
-                                if (overallMax <= 0) return 'rgba(255, 0, 0, 1)';
-                                if (overallMin >= startingAmount) return 'rgba(0, 128, 0, 1)';
-                                if (bin.end <= 0) return 'rgba(255, 0, 0, 1)';
-                                if (bin.start < startingAmount) return 'rgba(255, 165, 0, 1)';
-                                return 'rgba(0, 128, 0, 1)';
-                            }),
-                            borderWidth: 1
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        animation: false,
-                        scales: {
-                            y: {
-                                beginAtZero: true,
-                                title: {
-                                    display: true,
-                                    text: 'Number of Periods'
-                                }
-                            },
-                            x: {
-                                title: {
-                                    display: true,
-                                    text: 'Final Balance'
-                                }
-                            }
-                        },
-                        plugins: {
-                            legend: {
-                                display: false
-                            },
-                            title: {
-                                display: true,
-                                text: 'Histogram of Final Balances'
-                            }
-                        }
-                    }
-                });
-            } else {
-                histogramChart.data.labels = chartData.map((bin, index) => {
-                    if (index === 0 && bin.start === -Infinity) return `< $${bin.end.toLocaleString()}`;
-                    if (index === chartData.length - 1 && bin.end === Infinity) return `≥ $${bin.start.toLocaleString()}`;
-                    return `$${bin.start.toLocaleString()} - $${bin.end.toLocaleString()}`;
-                });
-                histogramChart.data.datasets[0].data = chartData.map(bin => bin.count);
-                histogramChart.data.datasets[0].backgroundColor = chartData.map(bin => {
-                    if (overallMax <= 0) return 'rgba(255, 0, 0, 0.5)';
-                    if (overallMin >= startingAmount) return 'rgba(0, 128, 0, 0.5)';
-                    if (bin.end <= 0) return 'rgba(255, 0, 0, 0.5)';
-                    if (bin.start < startingAmount) return 'rgba(255, 165, 0, 0.5)';
-                    return 'rgba(0, 128, 0, 0.5)';
-                });
-                histogramChart.data.datasets[0].borderColor = chartData.map(bin => {
-                    if (overallMax <= 0) return 'rgba(255, 0, 0, 1)';
-                    if (overallMin >= startingAmount) return 'rgba(0, 128, 0, 1)';
-                    if (bin.end <= 0) return 'rgba(255, 0, 0, 1)';
-                    if (bin.start < startingAmount) return 'rgba(255, 165, 0, 1)';
-                    return 'rgba(0, 128, 0, 1)';
-                });
-                histogramChart.update('none');
-            }
-        }
-    </script>
+    <div id="boxPlotContainer">
+        <canvas id="boxPlotChart"></canvas>
+    </div>
 </body>
 </html>
